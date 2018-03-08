@@ -4,14 +4,21 @@ import numpy as np
 from sklearn.metrics import mean_squared_error
 import lightgbm as lgb
 
-dtypes = {'id':'uint32', 'item_nbr':'int32', 'store_nbr':'int8', 'unit_sales':'float32', 'onpromotion':'bool' }
-
 # load or create your dataset
 print('Loading data...')
-df_train = pd.read_csv("data/train.csv", dtype=dtypes, parse_dates=["date"], low_memory=True, usecols=[1, 2, 3, 4, 5], skiprows=range(1, 106458909) )
+
+#Si tienes un PC con mucha RAM
+#converters={'unit_sales': lambda u: np.log1p(float(u)) if float(u) > 0 else 0}
+dtypes = {'id':'uint32', 'item_nbr':'int32', 'store_nbr':'int8', 'unit_sales':'float32', 'onpromotion':'bool' }
+
+df_train = pd.read_csv("data/train.csv", dtype=dtypes, parse_dates=["date"], low_memory=True, usecols=[1, 2, 3, 4, 5] ) #,converters=converters)
 df_test = pd.read_csv("data/test.csv", usecols=[0, 1, 2, 3, 4], dtype={'onpromotion': bool}, parse_dates=["date"] ).set_index(['store_nbr', 'item_nbr', 'date'])
 items = pd.read_csv("data/items.csv").set_index("item_nbr")
 print('Load complete...')
+
+df_train = df_train.loc[df_train.date>=pd.datetime(2017,1,1)] # Buscamos registros para Fecha deseada
+df_train.loc[(df_train.unit_sales < 0),'unit_sales'] = 0 # Eliminar Valores Negativos
+df_train["unit_sales"] = df_train["unit_sales"].apply(np.log1p) # Aplicar Logaritmo
 
 df_date = df_train
 del df_train
