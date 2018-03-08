@@ -7,25 +7,36 @@ import lightgbm as lgb
 # load or create your dataset
 print('Loading data...')
 
-#Si tienes un PC con mucha RAM
-#converters={'unit_sales': lambda u: np.log1p(float(u)) if float(u) > 0 else 0}
+start_date = date(2017, 1, 1) # Fecha inicial
+HPC = True
+
+
 dtypes = {'id':'uint32', 'item_nbr':'int32', 'store_nbr':'int8', 'unit_sales':'float32', 'onpromotion':'bool' }
 
-df_train = pd.read_csv("data/train.csv", dtype=dtypes, parse_dates=["date"], low_memory=True, usecols=[1, 2, 3, 4, 5] ) #,converters=converters)
+#Si tienes un PC con mucha RAM
+if(HPC=False):
+    chunk_iter = pd.read_csv("data/train.csv", dtype=dtypes, parse_dates=["date"], low_memory=True, usecols=[1, 2, 3, 4, 5] , chunksize=10000)
+
+    for chunk in chunk_iter:
+        chunk_kept = chunk.loc[chunk.date>=start_date] 
+        train_list.append(chunk_kept) 
+    df_train = pd.concat(train_list)
+    df_train.loc[(df_train.unit_sales < 0),'unit_sales'] = 0 # Eliminar Valores Negativos
+    df_train["unit_sales"] = df_train["unit_sales"].apply(np.log1p) # Aplicar Logaritmo
+
+
+df_train = pd.read_csv("data/train.csv", dtype=dtypes, parse_dates=["date"], usecols=[1, 2, 3, 4, 5] ,converters={'unit_sales': lambda u: np.log1p(float(u)) if float(u) > 0 else 0} )
 df_test = pd.read_csv("data/test.csv", usecols=[0, 1, 2, 3, 4], dtype={'onpromotion': bool}, parse_dates=["date"] ).set_index(['store_nbr', 'item_nbr', 'date'])
 items = pd.read_csv("data/items.csv").set_index("item_nbr")
 print('Load complete...')
 
 df_train = df_train.loc[df_train.date>=start_date] # Buscamos registros para Fecha deseada
-df_train.loc[(df_train.unit_sales < 0),'unit_sales'] = 0 # Eliminar Valores Negativos
-df_train["unit_sales"] = df_train["unit_sales"].apply(np.log1p) # Aplicar Logaritmo
 
 df_date = df_train
 del df_train
 
 look_back = 6 # Definimos la Ventana Temporal
 days_to_predict = 16 # Dias que se quieren predecir
-start_date = date(2017, 1, 1) # Fecha inicial
 base_date  = date(2017, 5, 31) # Fecha base para entrenar el modelo
 eval_date  = date(2017, 7, 26) # Fecha para evaluar el rendimiento
 last_date  = date(2017, 8, 16) # Última fecha disponible
