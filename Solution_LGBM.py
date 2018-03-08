@@ -14,7 +14,7 @@ HPC = True
 dtypes = {'id':'uint32', 'item_nbr':'int32', 'store_nbr':'int8', 'unit_sales':'float32', 'onpromotion':'bool' }
 
 #Si tienes un PC con mucha RAM
-if(HPC=False):
+if HPC==False:
     chunk_iter = pd.read_csv("data/train.csv", dtype=dtypes, parse_dates=["date"], low_memory=True, usecols=[1, 2, 3, 4, 5] , chunksize=10000)
 
     for chunk in chunk_iter:
@@ -172,26 +172,16 @@ for i in range(days_to_predict):
         params, dtrain, num_boost_round=MAX_ROUNDS,
         valid_sets=[dtrain, dval], early_stopping_rounds=20, verbose_eval=100
     )
-    #Imprime los promedios deseados de "Prepare_dataset"
-    #print("\n".join(("%s: %.2f" % x) for x in sorted(
-        #zip(X_train.columns, bst.feature_importance("gain")),
-        #key=lambda x: x[1], reverse=True
-    #)))
     val_pred.append(bst.predict(
         X_val, num_iteration=bst.best_iteration or MAX_ROUNDS))
     #Guarda la predicción de cada día
     test_pred.append(bst.predict(
         X_test, num_iteration=bst.best_iteration or MAX_ROUNDS))
     
-    print("Val_Pred: ",val_pred)
-    print("Test_pred: ",test_pred)
 
 #Evalua el rendimiento en un fragmento comparando las predicciones para uno de los days_to_predict días
 print("Validation mse:", mean_squared_error(
     y_val, np.array(val_pred).transpose()))
-
-print("Making submission...")
-y_test = np.array(test_pred).transpose()
 
 print("Making submission...")
 y_test = np.array(test_pred).transpose()
@@ -206,4 +196,3 @@ df_preds.index.set_names(["store_nbr", "item_nbr", "date"], inplace=True)
 submission = df_test[["id"]].join(df_preds, how="left").fillna(0)
 submission["unit_sales"] = np.clip(np.expm1(submission["unit_sales"]), 0, 1000)
 submission.to_csv('lgb.csv', float_format='%.4f', index=None)
-
