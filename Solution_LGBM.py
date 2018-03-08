@@ -16,12 +16,25 @@ df_test = pd.read_csv("data/test.csv", usecols=[0, 1, 2, 3, 4], dtype={'onpromot
 items = pd.read_csv("data/items.csv").set_index("item_nbr")
 print('Load complete...')
 
-df_train = df_train.loc[df_train.date>=pd.datetime(2017,1,1)] # Buscamos registros para Fecha deseada
+df_train = df_train.loc[df_train.date>=start_date] # Buscamos registros para Fecha deseada
 df_train.loc[(df_train.unit_sales < 0),'unit_sales'] = 0 # Eliminar Valores Negativos
 df_train["unit_sales"] = df_train["unit_sales"].apply(np.log1p) # Aplicar Logaritmo
 
 df_date = df_train
 del df_train
+
+look_back = 6 # Definimos la Ventana Temporal
+days_to_predict = 16 # Dias que se quieren predecir
+start_date = date(2017, 1, 1) # Fecha inicial
+base_date  = date(2017, 5, 31) # Fecha base para entrenar el modelo
+eval_date  = date(2017, 7, 26) # Fecha para evaluar el rendimiento
+last_date  = date(2017, 8, 16) # Última fecha disponible
+
+if (base_date + timedelta(days=7 * look_back) < last_date):
+    print("Parámetros válidos: OK")
+    print("Fecha máxima: ", base_date + timedelta(days=7 * look_back))
+else:
+    print("Fecha excede límite de registros")
 
 # Apilar en columnas las filas de Date para Train enfocandose en las Promociones
 promo_date_train = df_date.set_index(["store_nbr", "item_nbr", "date"])[["onpromotion"]].unstack(level=-1).fillna(False)
@@ -77,19 +90,19 @@ def prepare_dataset(tdate, is_train=True):
         X["promo_{}".format(i)] = promo_date[
             tdate + timedelta(days=i)].values.astype(np.uint8)
     if is_train:
-        # Unidades Vendidas de Items por tienda para los 16 días posteriores a la fecha deseada tdate
+        # Unidades Vendidas de Items por tienda para los days_to_predict días posteriores a la fecha deseada tdate
         y = df_date[
-            pd.date_range(tdate, periods=16)
+            pd.date_range(tdate, periods=days_to_predict)
         ].values
         return X, y
     return X
 
 print("Preparing dataset...")
-tdate = date(2017, 5, 31)
+tdate = base_date
 X_l, y_l = [], []
 
-# Elige una ventana temporal de 6
-for i in range(6):
+# Elige una ventana temporal de look_back
+for i in range(look_back):
     delta = timedelta(days=7 * i)
     print("Calculando promedios deseados para la fecha: ",tdate + delta)
     X_tmp, y_tmp = prepare_dataset(
@@ -107,10 +120,10 @@ X_train = pd.concat(X_l, axis=0)
 y_train = np.concatenate(y_l, axis=0)
 del X_l, y_l
 
-# Calcula un X y y en base a una fecha deseada (Aún no comprendo porqué)
-X_val, y_val = prepare_dataset(date(2017, 7, 26))
+# Calcula un X y y en base a una fecha deseada para evaluar el rendimiento general del estimador
+X_val, y_val = prepare_dataset(eval_date)
 # Calculamos el X_test en base al último día + 1 disponible de registros
-X_test = prepare_dataset(date(2017, 8, 16), is_train=False)
+X_test = prepare_dataset(last_date, is_train=False)
 
 print("Training and predicting models...")
 params = {
@@ -129,16 +142,16 @@ MAX_ROUNDS = 50
 val_pred = []
 test_pred = []
 cate_vars = []
-# Son 16 vueltas porque se van a predecir 16 días! empezando desde 2017-08-16 hasta 2017-08-31
-for i in range(16):
+# Son days_to_predict vueltas porque se van a predecir days_to_predict días empezando desde 2017-08-16 hasta 2017-08-31
+for i in range(days_to_predict):
     print("=" * 50)
     print("Step %d" % (i+1))
     print("=" * 50)
     dtrain = lgb.Dataset(
         X_train, label=y_train[:, i],
         categorical_feature=cate_vars,
-        # Concatenamos 6 veces items porque se eligió una ventana temporal de 6 y se concatenaron 6 X_train anteriormente.
-        weight=pd.concat([items["perishable"]] * 6) * 0.25 + 1
+        # Concatenamos look_back veces items porque se eligió una ventana temporal de look_back y se concatenaron look_back X_train anteriormente.
+        weight=pd.concat([items["perishable"]] * look_back) * 0.25 + 1
     )
     dval = lgb.Dataset(
         X_val, label=y_val[:, i], reference=dtrain,
@@ -162,7 +175,7 @@ for i in range(16):
     print("Val_Pred: ",val_pred)
     print("Test_pred: ",test_pred)
 
-#Evalua el rendimiento en un fragmento comparando las predicciones para uno de los 16 días
+#Evalua el rendimiento en un fragmento comparando las predicciones para uno de los days_to_predict días
 print("Validation mse:", mean_squared_error(
     y_val, np.array(val_pred).transpose()))
 
@@ -174,7 +187,7 @@ y_test = np.array(test_pred).transpose()
 
 df_preds = pd.DataFrame(
     y_test, index=df_date.index,
-    columns=pd.date_range("2017-08-16", periods=16)
+    columns=pd.date_range("2017-08-16", periods=days_to_predict)
 ).stack().to_frame("unit_sales")
 df_preds.index.set_names(["store_nbr", "item_nbr", "date"], inplace=True)
 
